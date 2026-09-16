@@ -1,6 +1,9 @@
+import { InMemoryCredentialStore, type CredentialStore } from "@earendil-works/pi-ai";
+import { ModelRegistry, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import { accountUtil, hasDir, addDirToAccount, removeDirFromAccount } from "./accounts";
 import { commonUtil } from "./common";
+import { piCredentialUtil } from "./pi-credentials";
 
 describe("accountUtil", () => {
   it("resolves all env secrets before mutating process.env", async () => {
@@ -55,7 +58,7 @@ describe("accountUtil", () => {
     expect(refresh).toHaveBeenCalledOnce();
   });
 
-  it("applies resolved env entries after successful resolution", () => {
+  it("applies resolved env entries after successful resolution", async () => {
     const authStorage = {
       setRuntimeApiKey: vi.fn(),
       removeRuntimeApiKey: vi.fn(),
@@ -63,7 +66,7 @@ describe("accountUtil", () => {
 
     const before = process.env.ACCOUNT_SWITCHER_TEST_KEY;
     try {
-      const applied = accountUtil.applyResolvedAccountEnv(
+      const applied = await accountUtil.applyResolvedAccountEnv(
         { id: "work", label: "Work", provider: "Claude" },
         [["ACCOUNT_SWITCHER_TEST_KEY", "new"]],
         { authStorage } as never,
@@ -76,6 +79,64 @@ describe("accountUtil", () => {
       if (before === undefined) delete process.env.ACCOUNT_SWITCHER_TEST_KEY;
       else process.env.ACCOUNT_SWITCHER_TEST_KEY = before;
     }
+  });
+
+  it("applies API-key accounts through Pi 0.85 ModelRuntime", async () => {
+    const runtime = await ModelRuntime.create({
+      credentials: new InMemoryCredentialStore(),
+      allowModelNetwork: false,
+      refreshOnCreate: false,
+    });
+    const registry = new ModelRegistry(runtime);
+
+    await accountUtil.applyResolvedAccountEnv(
+      { id: "work", label: "Work", provider: "anthropic" },
+      [["ANTHROPIC_API_KEY", "sk-runtime-test"]],
+      registry,
+    );
+
+    await expect(registry.getApiKeyForProvider("anthropic")).resolves.toBe("sk-runtime-test");
+  });
+
+  it("stores OAuth credentials through Pi 0.85 ModelRuntime credentials", async () => {
+    const credentialStore = new InMemoryCredentialStore();
+    const runtime = await ModelRuntime.create({
+      credentials: credentialStore,
+      allowModelNetwork: false,
+      refreshOnCreate: false,
+    });
+    const registry = new ModelRegistry(runtime);
+    const entry = { type: "oauth", access: "token", refresh: "refresh", expires: Date.now() + 60_000 } as const;
+
+    await accountUtil.applyAccountEnv(
+      { id: "work", label: "Work", provider: "openai-codex", piAuth: { provider: "openai-codex", entry } },
+      registry,
+    );
+
+    await expect((credentialStore as CredentialStore).read("openai-codex")).resolves.toEqual(entry);
+  });
+
+  it("snapshots and restores Pi 0.85 OAuth credentials", async () => {
+    const credentialStore = new InMemoryCredentialStore();
+    const runtime = await ModelRuntime.create({
+      credentials: credentialStore,
+      allowModelNetwork: false,
+      refreshOnCreate: false,
+    });
+    const registry = new ModelRegistry(runtime);
+    const original = { type: "oauth", access: "old", refresh: "old-refresh", expires: Date.now() + 60_000 } as const;
+    const replacement = { type: "oauth", access: "new", refresh: "new-refresh", expires: Date.now() + 60_000 } as const;
+
+    await (credentialStore as CredentialStore).modify("openai-codex", async () => original);
+    const snapshot = await piCredentialUtil.snapshotStoredCredential(registry, "openai-codex");
+    await piCredentialUtil.setStoredCredential(registry, "openai-codex", replacement);
+    await expect((credentialStore as CredentialStore).read("openai-codex")).resolves.toEqual(replacement);
+
+    if (snapshot.hadCredential) {
+      await piCredentialUtil.setStoredCredential(registry, "openai-codex", snapshot.credential);
+    }
+
+    await expect((credentialStore as CredentialStore).read("openai-codex")).resolves.toEqual(original);
   });
 });
 

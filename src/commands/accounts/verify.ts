@@ -1,9 +1,9 @@
-import type { Api, Model } from "@earendil-works/pi-ai";
-import type { AuthCredential, ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { Api, Credential, Model } from "@earendil-works/pi-ai";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { AccountSwitcher } from "../../runtime";
 import type { AccountConfig, AccountSwitcherContext, ProviderConfig, SecretSource } from "../../types";
 import { COMMANDS } from "../../constants";
-import { accountUtil, commonUtil, errorUtil, providerUtil, uiUtil } from "../../utils";
+import { accountUtil, commonUtil, errorUtil, piCredentialUtil, providerUtil, uiUtil } from "../../utils";
 import { AccountCommand } from "./shared";
 
 export const useVerifyAccountsCommand = (pi: ExtensionAPI, runtime: AccountSwitcher) => {
@@ -156,11 +156,11 @@ class VerifyAccountsCommand extends AccountCommand {
     }
 
     const envBackup = new Map<string, string | undefined>();
-    let authBackup: AuthCredential | undefined;
+    let authBackup: Credential | undefined;
     let hadAuth = false;
     let providerToRestore: ProviderConfig | undefined;
 
-    let requestAuth!: Awaited<ReturnType<typeof ctx.modelRegistry.getApiKeyAndHeaders>>;
+    let prepared = false;
     try {
       if (!account.piAuth && account.env) {
         const resolved = await accountUtil.resolveAccountEnv(account);
@@ -171,10 +171,10 @@ class VerifyAccountsCommand extends AccountCommand {
       }
 
       if (account.piAuth) {
-        hadAuth = ctx.modelRegistry.authStorage.has(authProvider);
-        authBackup = ctx.modelRegistry.authStorage.get(authProvider);
-        ctx.modelRegistry.authStorage.set(authProvider, account.piAuth.entry);
-        ctx.modelRegistry.authStorage.reload();
+        const snapshot = await piCredentialUtil.snapshotStoredCredential(ctx.modelRegistry, authProvider);
+        hadAuth = snapshot.hadCredential;
+        authBackup = snapshot.credential;
+        await piCredentialUtil.setStoredCredential(ctx.modelRegistry, authProvider, account.piAuth.entry as Credential);
       }
 
       if (account.providerApiKey) {
@@ -187,30 +187,13 @@ class VerifyAccountsCommand extends AccountCommand {
         }
       }
 
-      requestAuth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
+      const requestAuth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
       if (!requestAuth.ok) throw new Error(requestAuth.error);
-    } catch (err) {
-      return { ok: false, line: `✗ ping: unable to prepare credentials — ${errorUtil.format(err)}` };
-    } finally {
-      for (const [envName, previous] of envBackup) {
-        if (previous === undefined) delete process.env[envName];
-        else process.env[envName] = previous;
-      }
-      if (account.piAuth) {
-        if (hadAuth && authBackup) ctx.modelRegistry.authStorage.set(authProvider, authBackup);
-        else ctx.modelRegistry.authStorage.remove(authProvider);
-        ctx.modelRegistry.authStorage.reload();
-      }
-      if (providerToRestore) {
-        this.runtime.registerProvider(providerToRestore);
-      }
-    }
+      prepared = true;
 
-    try {
       ctx.ui.notify(`${prefix} ping: sending request via ${model.provider}/${model.id}...`, "info");
 
-      const { completeSimple } = await import("@earendil-works/pi-ai");
-      const response = await completeSimple(
+      const response = await ctx.modelRegistry.complete(
         model,
         {
           systemPrompt: "You are a health-check endpoint. Follow the user instruction exactly.",
@@ -223,8 +206,6 @@ class VerifyAccountsCommand extends AccountCommand {
           ],
         },
         {
-          apiKey: requestAuth.apiKey,
-          headers: requestAuth.headers,
           maxTokens: 16,
           timeoutMs: 30_000,
           maxRetries: 0,
@@ -236,7 +217,23 @@ class VerifyAccountsCommand extends AccountCommand {
       const text = response.content.find((block) => block.type === "text")?.text?.trim();
       return { ok: true, line: `✓ ping: OK via ${model.provider}/${model.id}${text ? ` — ${text}` : ""}` };
     } catch (err) {
-      return { ok: false, line: `✗ ping: failed — ${errorUtil.format(err)}` };
+      return {
+        ok: false,
+        line: `${prepared ? "✗ ping: failed" : "✗ ping: unable to prepare credentials"} — ${errorUtil.format(err)}`,
+      };
+    } finally {
+      for (const [envName, previous] of envBackup) {
+        if (previous === undefined) delete process.env[envName];
+        else process.env[envName] = previous;
+      }
+      if (account.piAuth) {
+        if (hadAuth && authBackup)
+          await piCredentialUtil.setStoredCredential(ctx.modelRegistry, authProvider, authBackup);
+        else await piCredentialUtil.removeStoredCredential(ctx.modelRegistry, authProvider);
+      }
+      if (providerToRestore) {
+        this.runtime.registerProvider(providerToRestore);
+      }
     }
   }
 
