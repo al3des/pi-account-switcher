@@ -3,6 +3,7 @@ import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 import type { AccountConfig, SecretSource } from "../types";
 import { commonUtil } from "./common";
 import { fileUtil } from "./files";
+import { piCredentialUtil } from "./pi-credentials";
 import { providerUtil } from "./providers";
 
 export const accountUtil = {
@@ -46,12 +47,12 @@ export const accountUtil = {
     return resolvedEntries;
   },
 
-  applyResolvedAccountEnv: (
+  applyResolvedAccountEnv: async (
     account: AccountConfig,
     resolvedEntries: Array<[string, string]>,
     modelRegistry?: ModelRegistry,
     authProviderOverride?: string,
-  ): string[] => {
+  ): Promise<string[]> => {
     const authProvider = authProviderOverride ?? providerUtil.normalizeProvider(account.provider);
     const applied: string[] = [];
     for (const [envName, value] of resolvedEntries) {
@@ -60,8 +61,8 @@ export const accountUtil = {
     }
 
     const firstValue = resolvedEntries[0]?.[1];
-    if (firstValue) modelRegistry?.authStorage.setRuntimeApiKey(authProvider, firstValue);
-    else modelRegistry?.authStorage.removeRuntimeApiKey(authProvider);
+    if (firstValue) await piCredentialUtil.setRuntimeApiKey(modelRegistry, authProvider, firstValue);
+    else await piCredentialUtil.removeRuntimeApiKey(modelRegistry, authProvider);
 
     return applied;
   },
@@ -139,54 +140,16 @@ export function removeDirFromAccount<T extends { id: string; label: string; prov
   return { ...account, dirs: filtered };
 }
 
-type CompatibleModelRegistry = ModelRegistry & {
-  authStorage?: {
-    set(provider: string, entry: unknown): void;
-    reload(): void;
-    removeRuntimeApiKey(provider: string): void;
-  };
-  runtime?: {
-    credentials: {
-      modify(provider: string, fn: () => Promise<unknown>): Promise<unknown>;
-    };
-    refresh(): Promise<unknown>;
-    removeRuntimeApiKey(provider: string): Promise<void>;
-  };
-};
-
 async function setStoredAuth(
   modelRegistry: ModelRegistry | undefined,
   provider: string,
   entry: unknown,
 ): Promise<void> {
-  if (!modelRegistry) return;
-  const registry = modelRegistry as CompatibleModelRegistry;
-
-  // Pi <=0.74 exposed AuthStorage directly on ModelRegistry.
-  if (registry.authStorage) {
-    registry.authStorage.set(provider, entry);
-    registry.authStorage.reload();
-    return;
-  }
-
-  // Pi >=0.83 keeps the credential store behind ModelRuntime.
-  if (registry.runtime) {
-    await registry.runtime.credentials.modify(provider, async () => entry);
-    await registry.runtime.refresh();
-    return;
-  }
-
-  throw new Error("This Pi version does not expose a compatible credential store");
+  await piCredentialUtil.setStoredCredential(modelRegistry, provider, entry as never);
 }
 
 async function removeRuntimeApiKey(modelRegistry: ModelRegistry | undefined, provider: string): Promise<void> {
-  if (!modelRegistry) return;
-  const registry = modelRegistry as CompatibleModelRegistry;
-  if (registry.authStorage) {
-    registry.authStorage.removeRuntimeApiKey(provider);
-    return;
-  }
-  await registry.runtime?.removeRuntimeApiKey(provider);
+  await piCredentialUtil.removeRuntimeApiKey(modelRegistry, provider);
 }
 
 function closeCachedSessions(): void {

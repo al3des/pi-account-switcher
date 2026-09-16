@@ -444,13 +444,17 @@ Configure the TTL in `~/.pi/account-switcher/accounts.json`:
 
 Set to a higher value (e.g. 90) if you frequently resume sessions from weeks ago, or a lower value (e.g. 7) for tighter cleanup. Entries without a `lastActive` timestamp (from previous versions) are automatically timestamped on first write after upgrade.
 
-## 13. Important Note About Credential Caching
+## 13. Pi Compatibility
+
+Supported Pi range: `>=0.85.1 <1`. `/accounts:verify` ping checks require `ModelRegistry.complete()`, which Pi 0.74 does not provide. Pi 0.85 exposes public model/auth methods for verification, but not a public extension API for mutating stored OAuth credentials; that mutation is kept in one compatibility helper and covered by regression tests.
+
+## 14. Important Note About Credential Caching
 
 The extension updates `process.env`, Pi's live runtime API-key overrides, and Pi's live OAuth auth storage when those hooks are available.
 
 If a provider still keeps old credentials cached, run `/reload` or restart Pi.
 
-## 14. Troubleshooting
+## 15. Troubleshooting
 
 ### No accounts configured
 

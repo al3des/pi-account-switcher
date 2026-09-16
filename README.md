@@ -263,9 +263,13 @@ Session entries are automatically cleaned up: entries inactive for `stateCleanup
 
 ---
 
+## Pi Compatibility
+
+This extension supports Pi `>=0.85.1 <1`. `/accounts:verify` ping checks require `ModelRegistry.complete()`, which is not available in Pi 0.74. Credential switching uses Pi 0.85's public model/auth methods where available; OAuth credential snapshot/restoration is isolated behind an internal compatibility boundary because Pi 0.85 does not expose credential-store mutation on the public extension API.
+
 ## Credential Caching
 
-On switch, the extension updates `process.env`, Pi's live API-key overrides, and Pi's OAuth auth storage. If a provider still uses old credentials, run `/reload` or restart Pi.
+On switch, the extension updates `process.env`, Pi's live API-key overrides, and Pi's OAuth auth storage through the compatibility layer above. If a provider still uses old credentials, run `/reload` or restart Pi.
 
 ---
 
