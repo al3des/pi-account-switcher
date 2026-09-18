@@ -34,6 +34,7 @@
   "dependencies": {
     "@earendil-works/pi-tui": "^0.74.0",
     "@mariozechner/jiti": "^2.6.5",
+    "typebox": "^1.2.14",
     "zod": "^4.4.3"
   },
   "peerDependencies": {
@@ -45,7 +46,6 @@
     "@earendil-works/pi-coding-agent": "^0.85.1",
     "@types/node": "latest",
     "prettier": "^3.8.3",
-    "typebox": "^1.2.14",
     "typescript": "latest",
     "vitest": "latest"
   },
