@@ -10,6 +10,8 @@ Initialization acceptance (`scripts/acceptance/initialization.mjs`) runs empty a
 
 The regression was observed dynamically: before the fix, the populated catalog was absent from Pi's startup model registry. Source inspection explains the timing (Pi applies initialization registrations before listing/selection); source timing alone is not the acceptance evidence. Empty catalogs are checked for clean loading and absence of synthetic models, not claimed to support selecting a nonexistent model.
 
+Live lifecycle acceptance (`scripts/acceptance/lifecycle.mjs`) drives public runtime operations through a loaded fixture extension in an actual Pi 1.0.2 session. It proves stale IDs disappear after rename/removal, unrelated models and account files remain unchanged, removing an OpenAI override restores the exact built-in catalog, and the production reset command removes all extension registrations without restarting Pi. Only confirmation is supplied by the offline fixture. Runtime regression tests inject registration/removal errors and verify saved configuration preservation and explicit restoration-failure reporting. Before the fix the live rename assertion failed because the stale ID remained selectable.
+
 For subsequent tickets, add durable regressions under `src/**/*.test.ts`; they automatically run here. A custom offline command can also be supplied, for example:
 
 ```sh

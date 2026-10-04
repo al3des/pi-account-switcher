@@ -23,6 +23,7 @@ export function useProviderService(pi: ExtensionAPI, path: string): ProviderServ
 
 class ProviderServiceImpl implements ProviderService {
   private providers: ProviderConfig[] = [];
+  private readonly registered = new Map<string, ProviderConfig>();
 
   constructor(
     private readonly pi: ExtensionAPI,
@@ -30,8 +31,9 @@ class ProviderServiceImpl implements ProviderService {
   ) {}
 
   async load(): Promise<void> {
-    this.providers = await this.store.load();
-    this.registerProviders(this.providers);
+    const providers = await this.store.load();
+    this.reconcileWithRestoration(providers);
+    this.providers = providers;
   }
 
   getProviders(): ProviderConfig[] {
@@ -42,9 +44,7 @@ class ProviderServiceImpl implements ProviderService {
     if (this.providers.some((p) => p.id === provider.id)) {
       throw new Error(`Provider already exists: ${provider.id}`);
     }
-    this.registerProvider(provider);
-    this.providers.push(provider);
-    await this.store.save(this.providers);
+    await this.commit([...this.providers, provider]);
   }
 
   async editProvider(original: ProviderConfig, updated: ProviderConfig): Promise<void> {
@@ -53,16 +53,15 @@ class ProviderServiceImpl implements ProviderService {
     if (updated.id !== original.id && this.providers.some((p) => p.id === updated.id)) {
       throw new Error(`Provider already exists: ${updated.id}`);
     }
-    this.providers[index] = updated;
-    await this.store.save(this.providers);
-    this.registerProvider(updated);
+    const providers = [...this.providers];
+    providers[index] = updated;
+    await this.commit(providers);
   }
 
   async removeProvider(provider: ProviderConfig): Promise<void> {
     const index = this.providers.findIndex((p) => p.id === provider.id);
     if (index === -1) throw new Error(`Provider not found: ${provider.id}`);
-    this.providers.splice(index, 1);
-    await this.store.save(this.providers);
+    await this.commit(this.providers.filter((p) => p.id !== provider.id));
   }
 
   registerProviders(providers: ProviderConfig[]): void {
@@ -71,8 +70,60 @@ class ProviderServiceImpl implements ProviderService {
 
   registerProvider(provider: ProviderConfig): void {
     const config = this.toPiProvider(provider);
-    if (!config) return;
+    if (!config) {
+      this.unregister(provider.id);
+      return;
+    }
+    // Track attempted mutations too: Pi may reject after changing its catalog.
+    this.registered.set(provider.id, provider);
     this.pi.registerProvider(provider.id, config as Parameters<ExtensionAPI["registerProvider"]>[1]);
+  }
+
+  private unregister(id: string): void {
+    if (!this.registered.has(id)) return;
+    this.pi.unregisterProvider(id);
+    this.registered.delete(id);
+  }
+
+  private reconcile(providers: ProviderConfig[], catalog?: ProviderConfig[]): void {
+    for (const id of this.registered.keys()) {
+      if (!providers.some((provider) => provider.id === id)) this.unregister(id);
+    }
+    for (const provider of providers) {
+      const previous = catalog?.find((p) => p.id === provider.id);
+      // Preserve account-specific credentials on unchanged, unrelated registrations.
+      if (previous && JSON.stringify(previous) === JSON.stringify(provider)) continue;
+      this.registerProvider(provider);
+    }
+  }
+
+  private reconcileWithRestoration(providers: ProviderConfig[]): void {
+    const previous = [...this.registered.values()];
+    try {
+      this.reconcile(providers, this.providers);
+    } catch (error) {
+      this.restore(previous, error);
+    }
+  }
+
+  private restore(previous: ProviderConfig[], error: unknown): never {
+    try {
+      this.reconcile(previous);
+    } catch (restorationError) {
+      throw new AggregateError([error, restorationError], "Provider reconciliation failed; restoration also failed");
+    }
+    throw error;
+  }
+
+  private async commit(providers: ProviderConfig[]): Promise<void> {
+    const previous = [...this.registered.values()];
+    try {
+      this.reconcile(providers, this.providers);
+      await this.store.save(providers);
+      this.providers = providers;
+    } catch (error) {
+      this.restore(previous, error);
+    }
   }
 
   private toPiProvider(provider: ProviderConfig): Record<string, unknown> | undefined {

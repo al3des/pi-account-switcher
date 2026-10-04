@@ -31,7 +31,7 @@ export default class AccountSwitcherRuntime implements AccountSwitcher {
     | undefined;
 
   constructor(
-    private readonly pi: Pick<ExtensionAPI, "registerProvider" | "setModel">,
+    private readonly pi: Pick<ExtensionAPI, "registerProvider" | "setModel"> & Partial<Pick<ExtensionAPI, "unregisterProvider">>,
     private readonly paths?: { accounts: string; providers: string; state: string },
   ) {
     this.providerService = useProviderService(this.pi as ExtensionAPI, paths?.providers ?? PROVIDERS_PATH);
