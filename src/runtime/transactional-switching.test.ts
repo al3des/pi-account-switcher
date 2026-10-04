@@ -11,7 +11,7 @@ it("restores API-key and OAuth-shaped sessions through the public Pi 1.0.2 runti
     const { stdout } = await promisify(execFile)(process.execPath, ["scripts/acceptance/switching.mjs"], {
       env: { PATH: process.env.PATH, HOME: home, PI_CODING_AGENT_DIR: join(home, ".pi/agent"), PI_OFFLINE: "1" },
     });
-    expect(stdout.match(/public switching:/g)).toHaveLength(18);
+    expect(stdout.match(/public switching:/g)).toHaveLength(20);
   } finally {
     await rm(home, { recursive: true, force: true });
   }

@@ -11,6 +11,7 @@ export interface ProviderService {
   removeProvider(provider: ProviderConfig): Promise<void>;
   registerProviders(providers: ProviderConfig[]): void;
   registerProvider(provider: ProviderConfig): void;
+  /** Restore host registration and service bookkeeping, honoring successful catalog edits. */
   snapshotRegistration(id: string): () => void;
 }
 
@@ -81,6 +82,8 @@ class ProviderServiceImpl implements ProviderService {
   }
 
   snapshotRegistration(id: string): () => void {
+    // This snapshot owns both the host mutation and `registered` bookkeeping.
+    // Restoring only the host leaves rejected account keys available to reconciliation.
     // The catalog belongs to this service, so an account snapshot must never
     // resurrect a definition superseded by a successful live edit or removal.
     const baseline = this.registered.get(id);

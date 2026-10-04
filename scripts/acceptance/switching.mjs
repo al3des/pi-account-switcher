@@ -15,7 +15,8 @@ for (const oauth of [false, true])
   for (const boundary of [
     "credential",
     "stored-credential",
-    "registration",
+    "registration-retry",
+    "registration-reconcile",
     "persistence",
     "model",
     "model-false",
@@ -37,11 +38,12 @@ for (const oauth of [false, true])
       {
         registerProvider(id, config) {
           registry.registerProvider(id, config);
-          if (armed && boundary === "registration") {
+          if (armed && boundary.startsWith("registration")) {
             armed = false;
             throw new Error("injected registration");
           }
         },
+        unregisterProvider: (id) => registry.unregisterProvider(id),
         async setModel(model) {
           selected = model;
           modelCalls++;
@@ -182,6 +184,27 @@ for (const oauth of [false, true])
           assert.equal(selected, priorModel);
           if (boundary === "persistence" || boundary.startsWith("model"))
             assert.equal(modelCalls, 2, "prior model restored after attempted selection");
+          if (boundary.startsWith("registration")) {
+            if (boundary === "registration-reconcile") {
+              // A failed catalog reconciliation must not resurrect the rejected account key.
+              armed = true;
+              await assert.rejects(switcher.editProvider(provider, { ...provider, apiKey: "edited" }), /injected/);
+              assert.deepEqual(
+                runtime.getRegisteredProviderConfig("switch-test"),
+                beforeRegistration,
+                "failed reconciliation preserves catalog after rejected switch",
+              );
+            }
+            await switcher.activateAccount(b, ctx);
+            ctx.model = selected;
+            a.model = priorModel.id;
+            await switcher.activateAccount(a, ctx);
+            assert.deepEqual(
+              runtime.getRegisteredProviderConfig("switch-test"),
+              beforeRegistration,
+              "retry then switch away restores catalog, not rejected account registration",
+            );
+          }
         }
       }
       assert.equal(await registry.getApiKeyForProvider("google"), "fake-unrelated");

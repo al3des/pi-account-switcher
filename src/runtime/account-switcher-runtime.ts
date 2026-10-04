@@ -220,18 +220,14 @@ export default class AccountSwitcherRuntime implements AccountSwitcher {
         ...(previous ? [this.accountService.getActiveAuthProvider() ?? resolveAuthProvider(previous, providers)] : []),
       ]),
     ]);
-    const registry = ctx.modelRegistry;
     const providerId = providerUtil.findProvider(account.provider, providers)?.id;
     const oldRegistration = this.accountRegistration;
     const registrationIds = new Set([
       ...(oldRegistration ? [oldRegistration.id] : []),
       ...(providerId && (account.providerApiKey || account.usesProviderApiKey) ? [providerId] : []),
     ]);
-    const registrations = new Map([...registrationIds].map((id) => [id, registry.getRegisteredProviderConfig(id)]));
-    const replaceRegistration = (id: string, config: Parameters<ExtensionAPI["registerProvider"]>[1] | undefined) => {
-      registry.unregisterProvider(id);
-      if (config) this.pi.registerProvider(id, config);
-    };
+    // ProviderService owns both host registration and its reconciliation bookkeeping.
+    const registrations = [...registrationIds].map((id) => this.providerService.snapshotRegistration(id));
     let modelAttempted = false;
     try {
       if (oldRegistration) oldRegistration.restore();
@@ -285,8 +281,8 @@ export default class AccountSwitcherRuntime implements AccountSwitcher {
         else process.env[name] = value;
       }
       this.accountRegistration = oldRegistration;
-      for (const [id, registration] of registrations) {
-        await attempt(() => replaceRegistration(id, registration));
+      for (const restoreRegistration of registrations) {
+        await attempt(restoreRegistration);
       }
       await attempt(restoreCredentials);
       await attempt(restoreSelection);
