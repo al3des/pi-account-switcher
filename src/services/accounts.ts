@@ -29,6 +29,8 @@ export function useAccountService(accountsPath: string, statePath?: string): Acc
 class AccountServiceImpl implements AccountService {
   private accounts: AccountConfig[] = [];
   private activeAccountId: string | undefined;
+  // Keep the credential target actually used, even if provider configuration changes.
+  private activeAuthProvider: string | undefined;
   private activeModelId: string | undefined;
   private activeModelProvider: string | undefined;
   private sessionKey: string | undefined;
@@ -128,13 +130,14 @@ class AccountServiceImpl implements AccountService {
     const previous = this.getActiveAccount();
     let applied: string[] = [];
     if (account.piAuth) {
-      if (previous) await accountUtil.clearAccountEnv(previous, ctx.modelRegistry);
+      if (previous) await accountUtil.clearAccountEnv(previous, ctx.modelRegistry, this.activeAuthProvider);
       applied = await accountUtil.applyAccountEnv(account, ctx.modelRegistry, authProvider);
     } else {
       const resolved = await accountUtil.resolveAccountEnv(account);
-      if (previous) await accountUtil.clearAccountEnv(previous, ctx.modelRegistry);
+      if (previous) await accountUtil.clearAccountEnv(previous, ctx.modelRegistry, this.activeAuthProvider);
       applied = await accountUtil.applyResolvedAccountEnv(account, resolved, ctx.modelRegistry, authProvider);
     }
+    this.activeAuthProvider = authProvider ?? account.piAuth?.provider ?? providerUtil.normalizeProvider(account.provider);
     this.activeAccountId = account.id;
     // Persist active account ID for subagent (cross-process) inheritance
     process.env.PI_ACCOUNT_SWITCHER_ACTIVE_ID = account.id;
