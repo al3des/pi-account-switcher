@@ -281,7 +281,7 @@ A plain string is treated as a literal value, except strings beginning with `op:
 /accounts:switch       # interactive picker from all accounts
 /accounts:switch <id>  # activate by ID directly (agent-facing)
 /accounts:peers        # picker from same-provider accounts
-/accounts:subagent     # set account for next spawned subagent
+/accounts:subagent     # set persistent child account preference
 ```
 
 ### Import current Pi OAuth login
@@ -478,6 +478,16 @@ Check the configured secret source:
 - file exists and contains the key
 - command works manually
 - `op` CLI is signed in
+
+### Child account preferences (Pi 1.0.2)
+
+Use `set_subagent_account` with `{ "id": "account-id", "oneshot": false }` for a persistent child preference; pass `{ "id": "" }` to clear it. `/accounts:subagent` offers the same persistent selection. One-shot requests (including omitted `oneshot`, or the UI one-shot choice) reject without mutation and explain how to use persistent selection instead.
+
+Parent selection uses `PI_ACCOUNT_SWITCHER_ACTIVE_ID`; child preference uses the separate `PI_ACCOUNT_SWITCHER_CHILD_ID`. Parent switching never rewrites the child preference. Clearing it preserves parent credentials, identity, and saved selection. Children resolve the explicit child preference first, then inherited parent identity, then normal session/directory/default fallback. The preference remains inherited by descendants until explicitly cleared in that process.
+
+Migration: obsolete `PI_ACCOUNT_SWITCHER_NEXT_ID` is ignored and deleted at initialization (and explicit clear); it no longer selects an account. Existing saved parent selections are unchanged. The old shared `ACTIVE_ID` cannot distinguish a historical persistent override from parent identity, so it remains the inherited parent selector; reapply child preferences explicitly using `oneshot=false`.
+
+This supports environment-inheriting launchers, including the inspected subagent launcher on exact Pi 1.0.2. Sequential, chained, parallel, and retried launches each receive the preference present at their own spawn; rejected dispatch does not change it. This is not a batch snapshot guarantee. Launchers that scrub environment are unsupported. Reliable one-shot support would require a separately versioned opt-in parent dispatcher with atomic per-child reservation and accepted-spawn consumption; tool names and child-local deletion are insufficient.
 
 ### Changes do not apply
 

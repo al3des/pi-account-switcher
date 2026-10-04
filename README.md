@@ -69,7 +69,7 @@ The local commands will be registered as `/dev:accounts:list`, `/dev:accounts:ad
 | `/accounts:add`      | Add a new account interactively                                 |
 | `/accounts:switch`   | Switch to any account (interactive picker or by ID)             |
 | `/accounts:peers`    | Switch to another account within the current provider           |
-| `/accounts:subagent` | Set account for the next spawned subagent                       |
+| `/accounts:subagent` | Set a persistent child account preference                       |
 | `/accounts:edit`     | Edit label, provider, id, or credential source                  |
 | `/accounts:remove`   | Delete an account                                               |
 | `/accounts:oauth`    | Import the current Pi `/login` OAuth session as a named account |
