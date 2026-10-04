@@ -2,7 +2,7 @@
 
 Run `npm run test:acceptance` from the checkout with Docker available.
 
-The image uses Node 22.16.0 and the committed npm lockfile, including exact Pi 1.0.2 development dependencies. The build fetches dependencies. Acceptance then runs with `--network none`, dropped capabilities, and no host mounts (including no HOME, credentials, or Docker socket). HOME and `PI_CODING_AGENT_DIR` point to disposable synthetic directories. Only source, manifests, and test configuration are copied into the image; developer environment variables are not forwarded.
+The image uses digest-pinned Node 22.23.0 (above Pi's Node 22.19 minimum) and the committed npm lockfile, including exact Pi 1.0.2 development dependencies. The build fetches dependencies. Acceptance then runs with `--network none`, dropped capabilities, and no host mounts (including no HOME, credentials, or Docker socket). HOME and `PI_CODING_AGENT_DIR` point to disposable synthetic directories. Only source, manifests, and test configuration are copied into the image; developer environment variables are not forwarded.
 
 The offline command performs normal `pi install /work` local-package installation, discovers it through saved package settings using Pi's actual resource loader, asserts exact host version and one loaded extension with zero errors/warnings, then runs typecheck and all tests. Credential tests use synthetic API keys and OAuth-shaped entries against actual Pi APIs with model network discovery disabled. They make no provider requests and do not test OAuth refresh or validity.
 

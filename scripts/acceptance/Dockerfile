@@ -1,4 +1,4 @@
-FROM node:22.16.0-bookworm-slim@sha256:048ed02c5fd52e86fda6fbd2f6a76cf0d4492fd6c6fee9e2c463ed5108da0e34
+FROM node:22.23.0-bookworm-slim@sha256:d9f850096136edbc402debdd8729579a288aac64574ada0ff4db26b6ae58b0b2
 WORKDIR /work
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts
