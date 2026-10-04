@@ -28,22 +28,25 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:acceptance": "bash scripts/acceptance/run.sh",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
   "dependencies": {
-    "@earendil-works/pi-tui": "^0.74.0",
     "@mariozechner/jiti": "^2.6.5",
-    "typebox": "^1.2.14",
     "zod": "^4.4.3"
   },
   "peerDependencies": {
-    "@earendil-works/pi-ai": ">=0.85.1 <1",
-    "@earendil-works/pi-coding-agent": ">=0.85.1 <1"
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "^0.85.1",
-    "@earendil-works/pi-coding-agent": "^0.85.1",
+    "@earendil-works/pi-ai": "1.0.2",
+    "@earendil-works/pi-coding-agent": "1.0.2",
+    "@earendil-works/pi-tui": "1.0.2",
+    "typebox": "^1.2.14",
     "@types/node": "latest",
     "prettier": "^3.8.3",
     "typescript": "latest",

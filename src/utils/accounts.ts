@@ -7,10 +7,14 @@ import { piCredentialUtil } from "./pi-credentials";
 import { providerUtil } from "./providers";
 
 export const accountUtil = {
-  clearAccountEnv: async (account: AccountConfig, modelRegistry?: ModelRegistry): Promise<void> => {
+  clearAccountEnv: async (
+    account: AccountConfig,
+    modelRegistry?: ModelRegistry,
+    authProviderOverride?: string,
+  ): Promise<void> => {
     // Clear the cross-process inheritance env var
     delete process.env.PI_ACCOUNT_SWITCHER_ACTIVE_ID;
-    const authProvider = account.piAuth?.provider ?? providerUtil.normalizeProvider(account.provider);
+    const authProvider = authProviderOverride ?? account.piAuth?.provider ?? providerUtil.normalizeProvider(account.provider);
     if (!account.piAuth && account.env) {
       for (const envName of Object.keys(account.env)) {
         delete process.env[envName];

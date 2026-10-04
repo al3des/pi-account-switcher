@@ -69,7 +69,7 @@ The local commands will be registered as `/dev:accounts:list`, `/dev:accounts:ad
 | `/accounts:add`      | Add a new account interactively                                 |
 | `/accounts:switch`   | Switch to any account (interactive picker or by ID)             |
 | `/accounts:peers`    | Switch to another account within the current provider           |
-| `/accounts:subagent` | Set account for the next spawned subagent                       |
+| `/accounts:subagent` | Set a persistent child account preference                       |
 | `/accounts:edit`     | Edit label, provider, id, or credential source                  |
 | `/accounts:remove`   | Delete an account                                               |
 | `/accounts:oauth`    | Import the current Pi `/login` OAuth session as a named account |
@@ -137,7 +137,7 @@ Complete browser/device login, then:
 
 Give it a label like `Claude — Work`. Repeat for as many accounts as you need — each gets its own saved credentials. Switch between them any time with `/accounts:switch`.
 
-OAuth credentials are read from `~/.pi/agent/auth.json` and written back to Pi's live auth storage on switch.
+OAuth credentials are read from Pi's active agent directory (`$PI_CODING_AGENT_DIR/auth.json`, or `~/.pi/agent/auth.json` by default) and written back to Pi's live auth storage on switch.
 
 ---
 
@@ -265,7 +265,9 @@ Session entries are automatically cleaned up: entries inactive for `stateCleanup
 
 ## Pi Compatibility
 
-This extension supports Pi `>=0.85.1 <1`. `/accounts:verify` ping checks require `ModelRegistry.complete()`, which is not available in Pi 0.74. Credential switching uses Pi 0.85's public model/auth methods where available; OAuth credential snapshot/restoration is isolated behind an internal compatibility boundary because Pi 0.85 does not expose credential-store mutation on the public extension API.
+Tested with exact Pi `1.0.2`; other versions are not validated. Host-provided packages use wildcard peer declarations as required by Pi's extension loader, not as a promise of compatibility with newer versions. Extension-owned runtime dependencies remain installed normally. OAuth-shaped credential storage, snapshots, restoration, and deletion use an isolated internal compatibility boundary; offline tests do not validate OAuth tokens or refresh.
+
+Run `npm run test:acceptance` with Docker to install and discover the package normally on Pi 1.0.2, typecheck, and run all regression tests. See [Docker acceptance](docs/acceptance.md) for isolation and reuse instructions.
 
 ## Credential Caching
 
