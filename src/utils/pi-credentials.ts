@@ -13,6 +13,8 @@ type LegacyAuthStorage = {
 
 type RuntimeCredentialStore = {
   read?(provider: string): Promise<Credential | undefined>;
+  store?: RuntimeCredentialStore;
+  overrides?: Map<string, string>;
   modify?(provider: string, update: () => Promise<Credential | undefined>): Promise<Credential | undefined>;
   delete?(provider: string): Promise<void>;
 };
@@ -27,11 +29,11 @@ type CompatibleModelRuntime = {
 type CompatibleModelRegistry = {
   authStorage?: LegacyAuthStorage;
   /**
-   * Private Pi 0.85 ModelRegistry boundary.
+   * Pi 1.0.2 ModelRegistry compatibility boundary.
    *
-   * Pi exposes public request/auth helpers on ModelRegistry, but not an extension API
-   * for mutating persisted OAuth credentials. Keep direct runtime access isolated in
-   * this file so the rest of the extension does not depend on private internals.
+   * Pi exposes public request/auth helpers but no extension snapshot API for the
+   * stored/runtime credential layers. Keep version-specific access isolated here;
+   * acceptance tests exercise the exact host implementation offline.
    */
   runtime?: CompatibleModelRuntime;
 };
@@ -41,6 +43,37 @@ export type StoredCredentialSnapshot =
   | { hadCredential: false; credential?: undefined };
 
 export const piCredentialUtil = {
+  /** Snapshot both layers: effective read() alone hides stored OAuth behind runtime keys. */
+  async snapshotContext(modelRegistry: ModelRegistry | undefined, providers: string[]): Promise<() => Promise<void>> {
+    if (!modelRegistry) return async () => {};
+    const runtime = (modelRegistry as unknown as CompatibleModelRegistry).runtime;
+    const credentials = runtime?.credentials;
+    if (!credentials?.store || !credentials.overrides) {
+      throw new Error("Pi 1.0.2 credential snapshot API is unavailable");
+    }
+    const store = credentials.store;
+    const snapshots = await Promise.all(
+      providers.map(async (provider) => ({
+        provider,
+        stored: await store.read?.(provider),
+        key: credentials.overrides?.get(provider),
+      })),
+    );
+    return async () => {
+      const errors: unknown[] = [];
+      for (const { provider, stored, key } of snapshots) {
+        try {
+          if (stored) await store.modify?.(provider, async () => stored);
+          else await store.delete?.(provider);
+          if (key === undefined) await this.removeRuntimeApiKey(modelRegistry, provider);
+          else await this.setRuntimeApiKey(modelRegistry, provider, key);
+        } catch (error) {
+          errors.push(error);
+        }
+      }
+      if (errors.length) throw new AggregateError(errors, "Credential restoration failed");
+    };
+  },
   async setStoredCredential(
     modelRegistry: ModelRegistry | undefined,
     provider: string,
@@ -76,7 +109,8 @@ export const piCredentialUtil = {
         : { hadCredential: false };
     }
 
-    const credential = await compatible.runtime?.credentials?.read?.(provider);
+    const credentials = compatible.runtime?.credentials;
+    const credential = await (credentials?.store ?? credentials)?.read?.(provider);
     return credential ? { hadCredential: true, credential } : { hadCredential: false };
   },
 

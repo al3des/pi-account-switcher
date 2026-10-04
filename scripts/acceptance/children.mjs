@@ -43,6 +43,7 @@ const ctx = {
   cwd: work,
   sessionManager: { getSessionFile: () => join(work, "session.json") },
   modelRegistry: new ModelRegistry(modelRuntime),
+  model: modelRuntime.getModels("anthropic")[0],
   ui: { notify() {}, setStatus() {}, custom: async () => undefined, select: async () => undefined },
 };
 const runtime = new AccountSwitcherRuntime({ registerProvider() {}, setModel: async () => true }, paths);

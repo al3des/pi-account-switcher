@@ -28,7 +28,7 @@ function mockCtx(overrides: { cwd?: string; sessionFile?: string }): AccountSwit
       input: async () => undefined,
       onTerminalInput: () => () => {},
     } as any,
-    modelRegistry: { authStorage, find: () => undefined, getAvailable: () => [], getAll: () => [] } as any,
+    modelRegistry: { authStorage, runtime: { credentials: { store: { read: async () => undefined, modify: async () => undefined }, overrides: new Map() } }, find: () => undefined, getAvailable: () => [], getAll: () => [] } as any,
     model: undefined,
     sessionManager:
       overrides.sessionFile !== undefined ? ({ getSessionFile: () => overrides.sessionFile } as any) : undefined,
@@ -274,6 +274,7 @@ describe("AccountSwitcherRuntime", () => {
         const ctx = mockCtx({});
         await runtime.init(ctx);
         expect(runtime.getActiveAccount()?.id).toBe("child");
+        ctx.model = { id: "fake", provider: "anthropic" } as any;
         await runtime.activateAccount(runtime.getAccounts().find(a => a.id === "parent")!, ctx);
         expect(runtime.getActiveAccount()?.id).toBe("parent");
         expect(process.env.PI_ACCOUNT_SWITCHER_CHILD_ID).toBe("child");

@@ -1,4 +1,5 @@
 import type AccountSwitcher from "./account-switcher";
+import { piCredentialUtil } from "../utils/pi-credentials";
 import { createHash } from "node:crypto";
 import { ACCOUNTS_PATH, PROVIDERS_PATH, STATE_PATH } from "../constants";
 import type { Api, Model } from "@earendil-works/pi-ai";
@@ -25,6 +26,9 @@ export default class AccountSwitcherRuntime implements AccountSwitcher {
   private providerService: ProviderService;
   private lastStatusLabel: string | undefined;
   private sessionKey: string | undefined;
+  private accountRegistration:
+    | { id: string; baseline: Parameters<ExtensionAPI["registerProvider"]>[1] | undefined }
+    | undefined;
 
   constructor(
     private readonly pi: Pick<ExtensionAPI, "registerProvider" | "setModel">,
@@ -98,9 +102,7 @@ export default class AccountSwitcherRuntime implements AccountSwitcher {
       }
     }
     if (selected) {
-      const providers = this.providerService.getProviders();
-      await this.applyProviderApiKey(selected, providers);
-      await this.accountService.activateAccount(selected, ctx, resolveAuthProvider(selected, providers));
+      await this.activateAccountTransaction(selected, ctx, false);
     }
 
     uiUtil.setAccountStatus(ctx.ui, selected?.label);
@@ -187,42 +189,134 @@ export default class AccountSwitcherRuntime implements AccountSwitcher {
   }
 
   async activateAccount(account: AccountConfig, ctx: AccountSwitcherContext): Promise<string> {
-    const providers = this.providerService.getProviders();
-    const providerApiKey = await this.applyProviderApiKey(account, providers);
-    const result = await this.accountService.activateAccount(account, ctx, resolveAuthProvider(account, providers));
-
-    // Persist the active account ID for subagent (cross-process) inheritance
-    process.env.PI_ACCOUNT_SWITCHER_ACTIVE_ID = account.id;
-
-    // piAuth accounts authenticate via a separate provider (e.g. github-copilot),
-    // so use that for model lookup rather than the account's own provider field.
-    const accountProvider = resolveAccountProvider(account, providers);
-    const currentProvider = ctx.model
-      ? providerUtil.normalizeProviderWithCustom(ctx.model.provider, providers)
-      : undefined;
-
-    // Skip model selection if the active model already belongs to the same provider.
-    if (accountProvider !== currentProvider) {
-      const model = await modelUtil.pickModel(ctx, account, providers, accountProvider);
-      if (model) await this.applyModel(model, ctx);
-    } else {
-      // Same provider — persist current model for full session tracking
-      if (ctx.model) {
-        await this.accountService.saveActiveModel(ctx.model.id, ctx.model.provider);
-      }
-    }
-
-    return providerApiKey ? `provider apiKey (${providerApiKey})` : result;
+    return this.activateAccountTransaction(account, ctx, true);
   }
 
-  private async applyProviderApiKey(account: AccountConfig, providers: ProviderConfig[]): Promise<string | undefined> {
+  private async activateAccountTransaction(
+    account: AccountConfig,
+    ctx: AccountSwitcherContext,
+    selectModel: boolean,
+  ): Promise<string> {
+    const providers = this.providerService.getProviders();
+    // Resolve all secrets before touching registrations, credentials or environment.
+    const resolvedEnv = await accountUtil.resolveAccountEnv(account);
+    const resolvedProviderKey = account.providerApiKey
+      ? await accountUtil.resolveSecret(account.providerApiKey)
+      : undefined;
+    if (account.providerApiKey && !resolvedProviderKey)
+      throw new Error(`Resolved empty providerApiKey for account ${account.id}`);
+    const previous = this.getActiveAccount();
+    const previousModel = ctx.model;
+    const envNames = new Set([
+      "PI_ACCOUNT_SWITCHER_ACTIVE_ID",
+      ...Object.keys(previous?.env ?? {}),
+      ...Object.keys(account.env ?? {}),
+    ]);
+    const environment = new Map([...envNames].map((name) => [name, process.env[name]]));
+    const restoreSelection = await this.accountService.snapshotSelection();
+    const restoreCredentials = await piCredentialUtil.snapshotContext(ctx.modelRegistry, [
+      ...new Set([
+        resolveAuthProvider(account, providers),
+        ...(previous ? [this.accountService.getActiveAuthProvider() ?? resolveAuthProvider(previous, providers)] : []),
+      ]),
+    ]);
+    const registry = ctx.modelRegistry;
+    const providerId = providerUtil.findProvider(account.provider, providers)?.id;
+    const oldRegistration = this.accountRegistration;
+    const registrationIds = new Set([
+      ...(oldRegistration ? [oldRegistration.id] : []),
+      ...(providerId && (account.providerApiKey || account.usesProviderApiKey) ? [providerId] : []),
+    ]);
+    const registrations = new Map([...registrationIds].map((id) => [id, registry.getRegisteredProviderConfig(id)]));
+    const replaceRegistration = (id: string, config: Parameters<ExtensionAPI["registerProvider"]>[1] | undefined) => {
+      registry.unregisterProvider(id);
+      if (config) this.pi.registerProvider(id, config);
+    };
+    let modelAttempted = false;
+    try {
+      if (oldRegistration) replaceRegistration(oldRegistration.id, oldRegistration.baseline);
+      this.accountRegistration = undefined;
+      if (providerId && (account.providerApiKey || account.usesProviderApiKey)) {
+        this.accountRegistration = { id: providerId, baseline: registry.getRegisteredProviderConfig(providerId) };
+      }
+      const providerApiKey = await this.applyProviderApiKey(account, providers, resolvedProviderKey);
+      const result = await this.accountService.activateAccount(
+        account,
+        ctx,
+        resolveAuthProvider(account, providers),
+        resolvedEnv,
+      );
+
+      // Persist the active account ID for subagent (cross-process) inheritance
+      process.env.PI_ACCOUNT_SWITCHER_ACTIVE_ID = account.id;
+
+      // piAuth accounts authenticate via a separate provider (e.g. github-copilot),
+      // so use that for model lookup rather than the account's own provider field.
+      const accountProvider = resolveAccountProvider(account, providers);
+      const currentProvider = ctx.model
+        ? providerUtil.normalizeProviderWithCustom(ctx.model.provider, providers)
+        : undefined;
+
+      // Skip model selection if the active model already belongs to the same provider.
+      if (selectModel && accountProvider !== currentProvider) {
+        const model = await modelUtil.pickModel(ctx, account, providers, accountProvider);
+        if (!model) throw new Error(`No model selected for account ${account.id}`);
+        modelAttempted = true;
+        await this.applyModel(model, ctx);
+      } else if (selectModel) {
+        // Same provider — persist current model for full session tracking
+        if (ctx.model) {
+          await this.accountService.saveActiveModel(ctx.model.id, ctx.model.provider);
+        }
+      }
+
+      return providerApiKey ? `provider apiKey (${providerApiKey})` : result;
+    } catch (cause) {
+      const errors: unknown[] = [];
+      const attempt = async (restore: () => void | Promise<void>) => {
+        try {
+          await restore();
+        } catch (error) {
+          errors.push(error);
+        }
+      };
+      for (const [name, value] of environment) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+      this.accountRegistration = oldRegistration;
+      for (const [id, registration] of registrations) {
+        await attempt(() => replaceRegistration(id, registration));
+      }
+      await attempt(restoreCredentials);
+      await attempt(restoreSelection);
+      if (modelAttempted && previousModel) {
+        await attempt(async () => {
+          if (!(await this.pi.setModel(previousModel))) throw new Error("Prior model restoration rejected");
+        });
+      }
+      await attempt(() => uiUtil.setAccountStatus(ctx.ui, previous?.label));
+      if (errors.length)
+        throw new AggregateError(
+          [cause, ...errors],
+          "Account switch failed; restoration failed (session may be inconsistent)",
+        );
+      throw cause;
+    }
+  }
+
+  private async applyProviderApiKey(
+    account: AccountConfig,
+    providers: ProviderConfig[],
+    resolvedKey?: string,
+  ): Promise<string | undefined> {
     if (!account.providerApiKey && !account.usesProviderApiKey) return undefined;
 
     const provider = providerUtil.findProvider(account.provider, providers);
     if (!provider) throw new Error(`Custom provider not found for account ${account.id}: ${account.provider}`);
 
     if (account.providerApiKey) {
-      const apiKey = await accountUtil.resolveSecret(account.providerApiKey);
+      const apiKey = resolvedKey ?? (await accountUtil.resolveSecret(account.providerApiKey));
       if (!apiKey) throw new Error(`Resolved empty providerApiKey for account ${account.id}`);
       this.providerService.registerProvider({ ...provider, apiKey });
       return provider.id;

@@ -4,14 +4,21 @@ import { accountUtil, providerUtil, uiUtil } from "../utils";
 
 export interface AccountService {
   load(): Promise<void>;
+  snapshotSelection(): Promise<() => Promise<void>>;
   setSessionKey(sessionKey: string): void;
   getAccounts(): AccountConfig[];
   findAccountsByProvider(provider: string, providers: ProviderConfig[]): AccountConfig[];
   getActiveAccount(): AccountConfig | undefined;
+  getActiveAuthProvider(): string | undefined;
   addAccount(account: AccountConfig): Promise<void>;
   editAccount(original: AccountConfig, updated: AccountConfig): Promise<void>;
   removeAccount(account: AccountConfig): Promise<void>;
-  activateAccount(account: AccountConfig, ctx: AccountSwitcherContext, authProvider?: string): Promise<string>;
+  activateAccount(
+    account: AccountConfig,
+    ctx: AccountSwitcherContext,
+    authProvider?: string,
+    resolvedEnv?: Array<[string, string]>,
+  ): Promise<string>;
   getActiveModelState(): { id: string; provider: string } | undefined;
   saveActiveModel(id: string, provider: string): Promise<void>;
   setDefaultAccountId(id: string): Promise<void>;
@@ -95,6 +102,10 @@ class AccountServiceImpl implements AccountService {
     return this.accounts.find((a) => a.id === this.activeAccountId);
   }
 
+  getActiveAuthProvider(): string | undefined {
+    return this.activeAuthProvider;
+  }
+
   getActiveModelState(): { id: string; provider: string } | undefined {
     if (!this.activeModelId || !this.activeModelProvider) return undefined;
     return { id: this.activeModelId, provider: this.activeModelProvider };
@@ -126,18 +137,34 @@ class AccountServiceImpl implements AccountService {
     }
   }
 
-  async activateAccount(account: AccountConfig, ctx: AccountSwitcherContext, authProvider?: string): Promise<string> {
+  async snapshotSelection(): Promise<() => Promise<void>> {
+    const state = await this.stateStore.load();
+    const selection = [this.activeAccountId, this.activeAuthProvider, this.activeModelId, this.activeModelProvider];
+    return async () => {
+      [this.activeAccountId, this.activeAuthProvider, this.activeModelId, this.activeModelProvider] = selection;
+      await this.stateStore.save(state);
+    };
+  }
+
+  async activateAccount(
+    account: AccountConfig,
+    ctx: AccountSwitcherContext,
+    authProvider?: string,
+    resolvedEnv?: Array<[string, string]>,
+  ): Promise<string> {
     const previous = this.getActiveAccount();
     let applied: string[] = [];
     if (account.piAuth) {
       if (previous) await accountUtil.clearAccountEnv(previous, ctx.modelRegistry, this.activeAuthProvider);
+      await accountUtil.clearAccountEnv({ ...account, env: undefined }, ctx.modelRegistry, authProvider);
       applied = await accountUtil.applyAccountEnv(account, ctx.modelRegistry, authProvider);
     } else {
-      const resolved = await accountUtil.resolveAccountEnv(account);
+      const resolved = resolvedEnv ?? (await accountUtil.resolveAccountEnv(account));
       if (previous) await accountUtil.clearAccountEnv(previous, ctx.modelRegistry, this.activeAuthProvider);
       applied = await accountUtil.applyResolvedAccountEnv(account, resolved, ctx.modelRegistry, authProvider);
     }
-    this.activeAuthProvider = authProvider ?? account.piAuth?.provider ?? providerUtil.normalizeProvider(account.provider);
+    this.activeAuthProvider =
+      authProvider ?? account.piAuth?.provider ?? providerUtil.normalizeProvider(account.provider);
     this.activeAccountId = account.id;
     // Persist active account ID for subagent (cross-process) inheritance
     process.env.PI_ACCOUNT_SWITCHER_ACTIVE_ID = account.id;
