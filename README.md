@@ -137,7 +137,7 @@ Complete browser/device login, then:
 
 Give it a label like `Claude — Work`. Repeat for as many accounts as you need — each gets its own saved credentials. Switch between them any time with `/accounts:switch`.
 
-OAuth credentials are read from `~/.pi/agent/auth.json` and written back to Pi's live auth storage on switch.
+OAuth credentials are read from Pi's active agent directory (`$PI_CODING_AGENT_DIR/auth.json`, or `~/.pi/agent/auth.json` by default) and written back to Pi's live auth storage on switch.
 
 ---
 

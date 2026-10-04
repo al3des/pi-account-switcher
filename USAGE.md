@@ -112,7 +112,7 @@ Switch OAuth accounts with:
 /accounts:switch
 ```
 
-OAuth credentials are captured from Pi's auth file:
+OAuth credentials are captured from `auth.json` in Pi's active agent directory. If `PI_CODING_AGENT_DIR` is set, that directory is used (including Pi's tilde expansion); otherwise the default is:
 
 ```txt
 ~/.pi/agent/auth.json
