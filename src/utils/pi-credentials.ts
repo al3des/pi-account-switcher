@@ -12,6 +12,7 @@ type LegacyAuthStorage = {
 };
 
 type RuntimeCredentialStore = {
+  // Pi 1.0.2 has no public override snapshot API; keep this compatibility boundary here.
   read?(provider: string): Promise<Credential | undefined>;
   store?: RuntimeCredentialStore;
   overrides?: Map<string, string>;
@@ -74,6 +75,14 @@ export const piCredentialUtil = {
       if (errors.length) throw new AggregateError(errors, "Credential restoration failed");
     };
   },
+
+  snapshotRuntimeApiKey(modelRegistry: ModelRegistry, provider: string): string | undefined {
+    const compatible = modelRegistry as unknown as CompatibleModelRegistry;
+    const overrides = compatible.runtime?.credentials?.overrides;
+    if (!overrides) throw new Error("This Pi version does not expose runtime API-key snapshots");
+    return overrides.get(provider);
+  },
+
   async setStoredCredential(
     modelRegistry: ModelRegistry | undefined,
     provider: string,

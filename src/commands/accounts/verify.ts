@@ -1,7 +1,7 @@
 import type { Api, Credential, Model } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { AccountSwitcher } from "../../runtime";
-import type { AccountConfig, AccountSwitcherContext, ProviderConfig, SecretSource } from "../../types";
+import type { AccountConfig, AccountSwitcherContext, SecretSource } from "../../types";
 import { COMMANDS } from "../../constants";
 import { accountUtil, commonUtil, errorUtil, piCredentialUtil, providerUtil, uiUtil } from "../../utils";
 import { AccountCommand } from "./shared";
@@ -156,35 +156,31 @@ class VerifyAccountsCommand extends AccountCommand {
     }
 
     const envBackup = new Map<string, string | undefined>();
-    let authBackup: Credential | undefined;
-    let hadAuth = false;
-    let providerToRestore: ProviderConfig | undefined;
+    const storedSnapshot = account.piAuth
+      ? await piCredentialUtil.snapshotStoredCredential(ctx.modelRegistry, authProvider)
+      : undefined;
 
+    const runtimeKeyBackup = piCredentialUtil.snapshotRuntimeApiKey(ctx.modelRegistry, authProvider);
     let prepared = false;
     try {
+      await piCredentialUtil.removeRuntimeApiKey(ctx.modelRegistry, authProvider);
       if (!account.piAuth && account.env) {
         const resolved = await accountUtil.resolveAccountEnv(account);
         for (const [envName, value] of resolved) {
           envBackup.set(envName, process.env[envName]);
           process.env[envName] = value;
         }
+        if (resolved[0]) await piCredentialUtil.setRuntimeApiKey(ctx.modelRegistry, authProvider, resolved[0][1]);
       }
 
       if (account.piAuth) {
-        const snapshot = await piCredentialUtil.snapshotStoredCredential(ctx.modelRegistry, authProvider);
-        hadAuth = snapshot.hadCredential;
-        authBackup = snapshot.credential;
         await piCredentialUtil.setStoredCredential(ctx.modelRegistry, authProvider, account.piAuth.entry as Credential);
       }
 
       if (account.providerApiKey) {
-        const provider = providerUtil.findProvider(account.provider, this.runtime.getProviders());
-        if (provider) {
-          providerToRestore = provider;
-          const apiKey = await accountUtil.resolveSecret(account.providerApiKey);
-          if (!apiKey) throw new Error("Resolved empty providerApiKey for ping");
-          this.runtime.registerProvider({ ...provider, apiKey });
-        }
+        const apiKey = await accountUtil.resolveSecret(account.providerApiKey);
+        if (!apiKey) throw new Error("Resolved empty providerApiKey for ping");
+        await piCredentialUtil.setRuntimeApiKey(ctx.modelRegistry, authProvider, apiKey);
       }
 
       const requestAuth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
@@ -226,13 +222,18 @@ class VerifyAccountsCommand extends AccountCommand {
         if (previous === undefined) delete process.env[envName];
         else process.env[envName] = previous;
       }
-      if (account.piAuth) {
-        if (hadAuth && authBackup)
-          await piCredentialUtil.setStoredCredential(ctx.modelRegistry, authProvider, authBackup);
-        else await piCredentialUtil.removeStoredCredential(ctx.modelRegistry, authProvider);
-      }
-      if (providerToRestore) {
-        this.runtime.registerProvider(providerToRestore);
+      try {
+        if (storedSnapshot) {
+          if (storedSnapshot.hadCredential)
+            await piCredentialUtil.setStoredCredential(ctx.modelRegistry, authProvider, storedSnapshot.credential);
+          else await piCredentialUtil.removeStoredCredential(ctx.modelRegistry, authProvider);
+        }
+      } finally {
+        if (runtimeKeyBackup !== undefined) {
+          await piCredentialUtil.setRuntimeApiKey(ctx.modelRegistry, authProvider, runtimeKeyBackup);
+        } else {
+          await piCredentialUtil.removeRuntimeApiKey(ctx.modelRegistry, authProvider);
+        }
       }
     }
   }
