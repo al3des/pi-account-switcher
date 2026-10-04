@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { ModelRuntime, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { createJiti } from "@mariozechner/jiti";
 const jiti = createJiti(import.meta.url);
@@ -192,3 +192,67 @@ for (const oauth of [false, true])
     delete process.env.SWITCH_FAKE;
     delete process.env.PI_ACCOUNT_SWITCHER_ACTIVE_ID;
   }
+
+for (const mutation of ["edit", "rename", "remove", "reset"]) {
+  const dir = await mkdtemp("/tmp/combined-lifecycle-");
+  const runtime = await ModelRuntime.create({
+    authPath: `${dir}/auth.json`,
+    modelsPath: null,
+    allowModelNetwork: false,
+  });
+  const registry = new ModelRegistry(runtime);
+  const switcher = new Switcher(
+    {
+      registerProvider: (id, config) => registry.registerProvider(id, config),
+      unregisterProvider: (id) => registry.unregisterProvider(id),
+      setModel: async () => true,
+    },
+    { accounts: `${dir}/accounts.json`, providers: `${dir}/providers.json`, state: `${dir}/state.json` },
+  );
+  await switcher.load();
+  const provider = {
+    id: "combined",
+    apiKey: "catalog",
+    baseUrl: "https://invalid.example",
+    api: "openai-completions",
+    models: [{ id: "model" }],
+  };
+  await switcher.addProvider(provider);
+  const account = { id: "custom", label: "Custom", provider: "combined", providerApiKey: "account" };
+  const away = { id: "away", label: "Away", provider: "openai", env: { COMBINED_KEY: "away" } };
+  await switcher.addAccount(account);
+  await switcher.addAccount(away);
+  await switcher.activateAccount(account, {
+    modelRegistry: registry,
+    model: registry.find("combined", "model"),
+    ui: { setStatus() {} },
+  });
+  if (mutation === "edit" || mutation === "rename")
+    await switcher.editProvider(provider, {
+      ...provider,
+      id: mutation === "rename" ? "renamed" : provider.id,
+      apiKey: "edited",
+    });
+  else if (mutation === "remove") {
+    await switcher.removeAccount(account);
+    await switcher.removeProvider(provider);
+  } else {
+    // Reloading an emptied saved catalog is the factory-reset reconciliation seam.
+    await writeFile(`${dir}/providers.json`, JSON.stringify({ providers: [] }));
+    await switcher.loadProviderCatalog();
+  }
+  await switcher.activateAccount(away, {
+    modelRegistry: registry,
+    model: registry.find("openai", "gpt-4"),
+    ui: { setStatus() {} },
+  });
+  assert.equal(
+    registry.getRegisteredProviderConfig("combined")?.apiKey,
+    mutation === "edit" ? "edited" : undefined,
+    mutation,
+  );
+  if (mutation === "rename") assert.equal(registry.getRegisteredProviderConfig("renamed")?.apiKey, "edited");
+  delete process.env.COMBINED_KEY;
+  delete process.env.PI_ACCOUNT_SWITCHER_ACTIVE_ID;
+  console.log(`Pi 1.0.2 combined active-provider lifecycle and switch: ${mutation}`);
+}

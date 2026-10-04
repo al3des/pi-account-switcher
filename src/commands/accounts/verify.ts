@@ -183,6 +183,14 @@ class VerifyAccountsCommand extends AccountCommand {
         await piCredentialUtil.setRuntimeApiKey(ctx.modelRegistry, authProvider, apiKey);
       }
 
+      if (account.usesProviderApiKey && !account.providerApiKey) {
+        const provider = providerUtil.findProvider(account.provider, this.runtime.getProviders());
+        if (!provider?.apiKey) throw new Error("Saved provider apiKey is unavailable");
+        const apiKey = await accountUtil.resolveSecret(provider.apiKey);
+        if (!apiKey) throw new Error("Resolved empty saved provider apiKey for ping");
+        await piCredentialUtil.setRuntimeApiKey(ctx.modelRegistry, authProvider, apiKey);
+      }
+
       const requestAuth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
       if (!requestAuth.ok) throw new Error(requestAuth.error);
       prepared = true;
@@ -209,7 +217,8 @@ class VerifyAccountsCommand extends AccountCommand {
         },
       );
 
-      if (response.stopReason === "error") throw new Error(response.errorMessage ?? "model returned an error");
+      if (response.stopReason === "error" || response.stopReason === "aborted")
+        throw new Error(response.errorMessage ?? `model returned ${response.stopReason}`);
       const text = response.content.find((block) => block.type === "text")?.text?.trim();
       return { ok: true, line: `✓ ping: OK via ${model.provider}/${model.id}${text ? ` — ${text}` : ""}` };
     } catch (err) {

@@ -139,9 +139,17 @@ class AccountServiceImpl implements AccountService {
 
   async snapshotSelection(): Promise<() => Promise<void>> {
     const state = await this.stateStore.load();
-    const selection = [this.activeAccountId, this.activeAuthProvider, this.activeModelId, this.activeModelProvider];
+    const selection = {
+      activeAccountId: this.activeAccountId,
+      activeAuthProvider: this.activeAuthProvider,
+      activeModelId: this.activeModelId,
+      activeModelProvider: this.activeModelProvider,
+    };
     return async () => {
-      [this.activeAccountId, this.activeAuthProvider, this.activeModelId, this.activeModelProvider] = selection;
+      this.activeAccountId = selection.activeAccountId;
+      this.activeAuthProvider = selection.activeAuthProvider;
+      this.activeModelId = selection.activeModelId;
+      this.activeModelProvider = selection.activeModelProvider;
       await this.stateStore.save(state);
     };
   }

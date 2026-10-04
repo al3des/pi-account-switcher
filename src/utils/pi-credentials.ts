@@ -66,6 +66,10 @@ export const piCredentialUtil = {
         try {
           if (stored) await store.modify?.(provider, async () => stored);
           else await store.delete?.(provider);
+        } catch (error) {
+          errors.push(error);
+        }
+        try {
           if (key === undefined) await this.removeRuntimeApiKey(modelRegistry, provider);
           else await this.setRuntimeApiKey(modelRegistry, provider, key);
         } catch (error) {

@@ -3,7 +3,6 @@ import type { AccountSwitcher } from "../../runtime";
 import type { AccountSwitcherContext } from "../../types";
 import { errorUtil } from "../../utils";
 import { AccountCommand } from "./shared";
-import { UNSUPPORTED_ONESHOT } from "./set-subagent-account";
 
 export const useSubagentAccountCommand = (pi: ExtensionAPI, runtime: AccountSwitcher) => {
   new SubagentAccountCommand(pi, runtime).register();
@@ -31,16 +30,11 @@ class SubagentAccountCommand extends AccountCommand {
       const account = await this.pickGroupedAccount(ctx, accounts, "Account for subagent");
       if (!account) return;
 
-      // Ask about oneshot (default: yes)
-      const oneshot = await ctx.ui.confirm(
-        "Apply to next subagent only?",
-        "Yes = unsupported one-shot (will reject). No = persistent (all inheriting children until cleared).",
+      const confirmed = await ctx.ui.confirm(
+        "Set persistent child account?",
+        "All inheriting children will use this account until the preference is cleared.",
       );
-
-      if (oneshot !== false) {
-        ctx.ui.notify(UNSUPPORTED_ONESHOT, "error");
-        return;
-      }
+      if (!confirmed) return;
       process.env.PI_ACCOUNT_SWITCHER_CHILD_ID = account.id;
 
       ctx.ui.notify(`Subagent account set to: ${account.label} (persistent).`, "info");

@@ -27,7 +27,7 @@ export default class AccountSwitcherRuntime implements AccountSwitcher {
   private lastStatusLabel: string | undefined;
   private sessionKey: string | undefined;
   private accountRegistration:
-    | { id: string; baseline: Parameters<ExtensionAPI["registerProvider"]>[1] | undefined }
+    | { id: string; restore: () => void }
     | undefined;
 
   constructor(
@@ -234,12 +234,12 @@ export default class AccountSwitcherRuntime implements AccountSwitcher {
     };
     let modelAttempted = false;
     try {
-      if (oldRegistration) replaceRegistration(oldRegistration.id, oldRegistration.baseline);
+      if (oldRegistration) oldRegistration.restore();
       this.accountRegistration = undefined;
       if (providerId && (account.providerApiKey || account.usesProviderApiKey)) {
-        this.accountRegistration = { id: providerId, baseline: registry.getRegisteredProviderConfig(providerId) };
+        this.accountRegistration = { id: providerId, restore: this.providerService.snapshotRegistration(providerId) };
       }
-      const providerApiKey = await this.applyProviderApiKey(account, providers, resolvedProviderKey);
+      const appliedProviderId = await this.applyProviderApiKey(account, providers, resolvedProviderKey);
       const result = await this.accountService.activateAccount(
         account,
         ctx,
@@ -270,7 +270,7 @@ export default class AccountSwitcherRuntime implements AccountSwitcher {
         }
       }
 
-      return providerApiKey ? `provider apiKey (${providerApiKey})` : result;
+      return appliedProviderId ? `provider apiKey (${appliedProviderId})` : result;
     } catch (cause) {
       const errors: unknown[] = [];
       const attempt = async (restore: () => void | Promise<void>) => {

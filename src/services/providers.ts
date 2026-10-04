@@ -11,6 +11,7 @@ export interface ProviderService {
   removeProvider(provider: ProviderConfig): Promise<void>;
   registerProviders(providers: ProviderConfig[]): void;
   registerProvider(provider: ProviderConfig): void;
+  snapshotRegistration(id: string): () => void;
 }
 
 export function useProviderService(pi: ExtensionAPI, path: string): ProviderService {
@@ -32,7 +33,7 @@ class ProviderServiceImpl implements ProviderService {
 
   async load(): Promise<void> {
     const providers = await this.store.load();
-    this.reconcileWithRestoration(providers);
+    await this.withRestoration(() => this.reconcile(providers, this.providers));
     this.providers = providers;
   }
 
@@ -79,6 +80,19 @@ class ProviderServiceImpl implements ProviderService {
     this.pi.registerProvider(provider.id, config as Parameters<ExtensionAPI["registerProvider"]>[1]);
   }
 
+  snapshotRegistration(id: string): () => void {
+    // The catalog belongs to this service, so an account snapshot must never
+    // resurrect a definition superseded by a successful live edit or removal.
+    const baseline = this.registered.get(id);
+    const catalog = JSON.stringify(this.providers.find((provider) => provider.id === id));
+    return () => {
+      const current = this.providers.find((provider) => provider.id === id);
+      const restored = JSON.stringify(current) === catalog ? baseline : current;
+      if (restored) this.registerProvider(restored);
+      else this.unregister(id);
+    };
+  }
+
   private unregister(id: string): void {
     if (!this.registered.has(id)) return;
     this.pi.unregisterProvider(id);
@@ -97,15 +111,6 @@ class ProviderServiceImpl implements ProviderService {
     }
   }
 
-  private reconcileWithRestoration(providers: ProviderConfig[]): void {
-    const previous = [...this.registered.values()];
-    try {
-      this.reconcile(providers, this.providers);
-    } catch (error) {
-      this.restore(previous, error);
-    }
-  }
-
   private restore(previous: ProviderConfig[], error: unknown): never {
     try {
       this.reconcile(previous);
@@ -115,15 +120,21 @@ class ProviderServiceImpl implements ProviderService {
     throw error;
   }
 
-  private async commit(providers: ProviderConfig[]): Promise<void> {
+  private async withRestoration(action: () => void | Promise<void>): Promise<void> {
     const previous = [...this.registered.values()];
     try {
-      this.reconcile(providers, this.providers);
-      await this.store.save(providers);
-      this.providers = providers;
+      await action();
     } catch (error) {
       this.restore(previous, error);
     }
+  }
+
+  private async commit(providers: ProviderConfig[]): Promise<void> {
+    await this.withRestoration(async () => {
+      this.reconcile(providers, this.providers);
+      await this.store.save(providers);
+      this.providers = providers;
+    });
   }
 
   private toPiProvider(provider: ProviderConfig): Record<string, unknown> | undefined {

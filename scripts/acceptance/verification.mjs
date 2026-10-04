@@ -6,7 +6,7 @@ const root = process.env.ACCEPTANCE_ROOT ?? '/work';
 const jiti = createJiti(import.meta.url);
 const { default: Switcher } = await jiti.import(`${root}/src/runtime/account-switcher-runtime.ts`);
 const { useVerifyAccountsCommand } = await jiti.import(`${root}/src/commands/accounts/verify.ts`);
-for (const kind of ['env', 'provider-key', 'oauth']) for (const outcome of ['success', 'error', 'cancel']) {
+for (const kind of ['env', 'provider-key', 'catalog-key', 'oauth']) for (const outcome of ['success', 'error', 'cancel', 'aborted']) {
   const dir = await mkdtemp('/tmp/verification-');
   const runtime = await ModelRuntime.create({ authPath: `${dir}/auth.json`, modelsPath: null, allowModelNetwork: false });
   const registry = new ModelRegistry(runtime);
@@ -17,7 +17,8 @@ for (const kind of ['env', 'provider-key', 'oauth']) for (const outcome of ['suc
   await switcher.init({ modelRegistry: registry, sessionManager: { getSessionFile: () => `${dir}/session.jsonl` }, ui: { setStatus() {} } });
   const oauth = kind === 'oauth';
   const credential = oauth ? { type: 'oauth', access: 'fake-target-access', refresh: 'fake-refresh', expires: 4102444800000 } : undefined;
-  const target = { id: 'target', label: 'Target', provider: oauth ? 'anthropic' : 'openai', ...(oauth ? { piAuth: { provider: 'anthropic', entry: credential } } : kind === 'provider-key' ? { providerApiKey: 'fake-target-key' } : { env: { VERIFY_FAKE_KEY: 'fake-target-key' } }) };
+  const target = { id: 'target', label: 'Target', provider: oauth ? 'anthropic' : 'openai', ...(oauth ? { piAuth: { provider: 'anthropic', entry: credential } } : kind === 'catalog-key' ? { usesProviderApiKey: true } : kind === 'provider-key' ? { providerApiKey: 'fake-target-key' } : { env: { VERIFY_FAKE_KEY: 'fake-target-key' } }) };
+  await switcher.addProvider({ id: target.provider, apiKey: 'fake-catalog-key' });
   await switcher.addAccount(target);
   const provider = target.provider;
   await runtime.credentials.modify(provider, async () => ({ type: 'api_key', key: 'fake-stored' }));
@@ -42,7 +43,8 @@ for (const kind of ['env', 'provider-key', 'oauth']) for (const outcome of ['suc
     const auth = await registry.getApiKeyAndHeaders(requested);
     assert.equal(auth.ok, true);
     // Targets are verified in saved order: requested target, then parent.
-    assert.equal(auth.apiKey, probes++ === 0 ? (oauth ? 'fake-target-access' : 'fake-target-key') : 'fake-parent');
+    assert.equal(auth.apiKey, probes++ === 0 ? (oauth ? 'fake-target-access' : kind === 'catalog-key' ? 'fake-catalog-key' : 'fake-target-key') : 'fake-parent');
+    if (outcome === 'aborted') return { stopReason: 'aborted', content: [] };
     if (outcome !== 'success') throw Object.assign(new Error(outcome), { name: outcome === 'cancel' ? 'AbortError' : 'Error' });
     return { stopReason: 'stop', content: [{ type: 'text', text: 'OK' }] };
   };
