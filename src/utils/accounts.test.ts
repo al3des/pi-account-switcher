@@ -81,7 +81,7 @@ describe("accountUtil", () => {
     }
   });
 
-  it("applies API-key accounts through Pi 0.85 ModelRuntime", async () => {
+  it("applies API-key accounts through Pi 1.0.2 ModelRuntime", async () => {
     const runtime = await ModelRuntime.create({
       credentials: new InMemoryCredentialStore(),
       allowModelNetwork: false,
@@ -96,9 +96,16 @@ describe("accountUtil", () => {
     );
 
     await expect(registry.getApiKeyForProvider("anthropic")).resolves.toBe("sk-runtime-test");
+    await piCredentialUtil.setRuntimeApiKey(registry, "anthropic", "fake-replacement");
+    await expect(registry.getApiKeyForProvider("anthropic")).resolves.toBe("fake-replacement");
+    await accountUtil.clearAccountEnv(
+      { id: "work", label: "Work", provider: "anthropic", env: { ANTHROPIC_API_KEY: "sk-runtime-test" } },
+      registry,
+    );
+    await expect(registry.getApiKeyForProvider("anthropic")).resolves.toBeUndefined();
   });
 
-  it("stores OAuth credentials through Pi 0.85 ModelRuntime credentials", async () => {
+  it("stores OAuth-shaped credentials through Pi 1.0.2 ModelRuntime credentials", async () => {
     const credentialStore = new InMemoryCredentialStore();
     const runtime = await ModelRuntime.create({
       credentials: credentialStore,
@@ -116,7 +123,7 @@ describe("accountUtil", () => {
     await expect((credentialStore as CredentialStore).read("openai-codex")).resolves.toEqual(entry);
   });
 
-  it("snapshots and restores Pi 0.85 OAuth credentials", async () => {
+  it("snapshots, restores, and deletes Pi 1.0.2 OAuth-shaped credentials", async () => {
     const credentialStore = new InMemoryCredentialStore();
     const runtime = await ModelRuntime.create({
       credentials: credentialStore,
@@ -137,6 +144,10 @@ describe("accountUtil", () => {
     }
 
     await expect((credentialStore as CredentialStore).read("openai-codex")).resolves.toEqual(original);
+    await piCredentialUtil.removeStoredCredential(registry, "openai-codex");
+    await expect(piCredentialUtil.snapshotStoredCredential(registry, "openai-codex")).resolves.toEqual({
+      hadCredential: false,
+    });
   });
 });
 

@@ -446,7 +446,7 @@ Set to a higher value (e.g. 90) if you frequently resume sessions from weeks ago
 
 ## 13. Pi Compatibility
 
-Supported Pi range: `>=0.85.1 <1`. `/accounts:verify` ping checks require `ModelRegistry.complete()`, which Pi 0.74 does not provide. Pi 0.85 exposes public model/auth methods for verification, but not a public extension API for mutating stored OAuth credentials; that mutation is kept in one compatibility helper and covered by regression tests.
+Tested host: exact Pi `1.0.2`. No compatibility claim is made for other versions. Host-provided dependencies use wildcard peer declarations required by the loader. Stored OAuth credential mutation remains isolated in one compatibility helper. Offline regression coverage tests synthetic credential storage, snapshots, restoration, and deletion, not OAuth refresh or token validity. See [Docker acceptance](docs/acceptance.md).
 
 ## 14. Important Note About Credential Caching
 
