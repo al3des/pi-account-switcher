@@ -6,6 +6,10 @@ The image uses Node 22.16.0 and the committed npm lockfile, including exact Pi 1
 
 The offline command performs normal `pi install /work` local-package installation, discovers it through saved package settings using Pi's actual resource loader, asserts exact host version and one loaded extension with zero errors/warnings, then runs typecheck and all tests. Credential tests use synthetic API keys and OAuth-shaped entries against actual Pi APIs with model network discovery disabled. They make no provider requests and do not test OAuth refresh or validity.
 
+Initialization acceptance (`scripts/acceptance/initialization.mjs`) runs empty and populated saved catalogs in separate disposable processes. It uses Pi 1.0.2's actual startup services plus CLI `--list-models`, then verifies initial default-model selection before binding `session_start`. Catalog registration preserves account/provider/state files, stored auth, and the full environment; synthetic catalog credentials remain distinct from account credentials. Binding the session activates the configured default account, and `/accounts:switch` selects another account with observable effective auth and persisted identity. No prompts are sent to providers.
+
+The regression was observed dynamically: before the fix, the populated catalog was absent from Pi's startup model registry. Source inspection explains the timing (Pi applies initialization registrations before listing/selection); source timing alone is not the acceptance evidence. Empty catalogs are checked for clean loading and absence of synthetic models, not claimed to support selecting a nonexistent model.
+
 For subsequent tickets, add durable regressions under `src/**/*.test.ts`; they automatically run here. A custom offline command can also be supplied, for example:
 
 ```sh

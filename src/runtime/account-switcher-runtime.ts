@@ -118,8 +118,13 @@ export default class AccountSwitcherRuntime implements AccountSwitcher {
     uiUtil.setAccountStatus(ctx.ui, label);
   }
 
-  async load(): Promise<void> {
+  /** Register saved definitions without loading or activating any account. */
+  async loadProviderCatalog(): Promise<void> {
     await this.providerService.load();
+  }
+
+  async load(): Promise<void> {
+    await this.loadProviderCatalog();
     await this.accountService.load();
   }
 
